@@ -105,6 +105,11 @@ struct SettingsView: View {
                         Button("Abmelden / Playlist entfernen", role: .destructive) { store.disconnect() }
                     }
                 }
+
+                Section {
+                    LabeledContent("App-Version",
+                                   value: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "–")
+                }
             }
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()

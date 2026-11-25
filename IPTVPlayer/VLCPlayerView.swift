@@ -142,12 +142,20 @@ final class VLCPlayerModel: NSObject, ObservableObject, VLCMediaPlayerDelegate {
     }
 }
 
+/// Hält VLCs eigene Bildfläche immer so groß wie den Platz (sonst bleibt sie beim Drehen klein)
+final class VLCContainerView: UIView {
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        for sub in subviews { sub.frame = bounds }
+    }
+}
+
 /// Die Fläche, auf die VLC das Bild zeichnet
 struct VLCVideoSurface: UIViewRepresentable {
     let model: VLCPlayerModel
 
     func makeUIView(context: Context) -> UIView {
-        let view = UIView()
+        let view = VLCContainerView()
         view.backgroundColor = .black
         // Wichtig: sonst fängt VLCs Bildfläche alle Fingertipps ab
         view.isUserInteractionEnabled = false
@@ -185,11 +193,16 @@ struct VLCPlayerScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            playerArea
-                .frame(maxWidth: .infinity)
-                .frame(maxHeight: isLandscape ? .infinity : nil)
-                .aspectRatio(isLandscape ? nil : 16 / 9, contentMode: .fit)
-                .background(.black)
+            if isLandscape {
+                playerArea
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(.black)
+            } else {
+                playerArea
+                    .frame(maxWidth: .infinity)
+                    .aspectRatio(16 / 9, contentMode: .fit)
+                    .background(.black)
+            }
 
             if !isLandscape {
                 infoList

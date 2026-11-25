@@ -25,6 +25,7 @@ workflows:
         script: |
           mkdir -p Payload
           cp -R build/Build/Products/Release-iphoneos/IPTVPlayer.app Payload/
-          zip -qry IPTVPlayer.ipa Payload
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" Payload/IPTVPlayer.app/Info.plist)
+          zip -qry "IPTVPlayer-v${VERSION}.ipa" Payload
     artifacts:
-      - IPTVPlayer.ipa
+      - IPTVPlayer-v*.ipa

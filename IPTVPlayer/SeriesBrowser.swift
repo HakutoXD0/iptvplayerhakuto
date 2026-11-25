@@ -6,6 +6,7 @@ struct SeriesBrowser: View {
     @Binding var showSettings: Bool
     @State private var search = ""
     @State private var selectedGroup: String?
+    @AppStorage("gridLayout.Serien") private var useGrid = true
 
     private var filtered: [XtreamSeries] {
         store.series.filter { s in
@@ -16,12 +17,29 @@ struct SeriesBrowser: View {
 
     var body: some View {
         NavigationStack {
-            List(filtered) { s in
-                NavigationLink(value: s) {
-                    PosterRow(title: s.name, subtitle: s.group, imageURL: s.cover.flatMap(URL.init(string:)))
+            Group {
+                if useGrid {
+                    ScrollView {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 110), spacing: 12)], spacing: 16) {
+                            ForEach(filtered) { s in
+                                NavigationLink(value: s) {
+                                    PosterTile(title: s.name, imageURL: s.cover.flatMap(URL.init(string:)))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal)
+                        .padding(.top, 8)
+                    }
+                } else {
+                    List(filtered) { s in
+                        NavigationLink(value: s) {
+                            PosterRow(title: s.name, subtitle: s.group, imageURL: s.cover.flatMap(URL.init(string:)))
+                        }
+                    }
+                    .listStyle(.plain)
                 }
             }
-            .listStyle(.plain)
             .searchable(text: $search, prompt: "Serien suchen")
             .navigationTitle(selectedGroup ?? "Serien")
             .navigationBarTitleDisplayMode(.inline)
@@ -38,6 +56,7 @@ struct SeriesBrowser: View {
                         Image(systemName: selectedGroup == nil ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
                     }
                 }
+                ToolbarItem(placement: .topBarTrailing) { LayoutToggle(useGrid: $useGrid) }
                 ToolbarItem(placement: .topBarTrailing) { SettingsButton(showSettings: $showSettings) }
             }
         }
