@@ -293,7 +293,16 @@ final class VLCContainerView: UIView {
 
     // MARK: VLCPictureInPictureDrawable (per Laufzeit)
 
-    @objc func mediaController() -> AnyObject { pipAdapter }
+    /// Bevorzugt VLCs eigene Steuerung (VLCMediaPlayer erfüllt das Protokoll selbst),
+    /// nur falls nicht: unser Adapter
+    @objc func mediaController() -> AnyObject {
+        if let player = model?.player,
+           let proto = NSProtocolFromString("VLCPictureInPictureMediaControlling"),
+           player.conforms(to: proto) {
+            return player
+        }
+        return pipAdapter
+    }
 
     @objc func pictureInPictureReady() -> (@convention(block) (AnyObject?) -> Void) {
         return { [weak self] controller in

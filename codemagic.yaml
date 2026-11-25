@@ -46,15 +46,13 @@ workflows:
       - name: VLCKit-4-Schnittstellen ins Log schreiben
         script: |
           #!/usr/bin/env bash
-          echo "== Header-Ordner:"; find Pods -type d -name Headers | head -5
-          F=$(grep -rl "VLCPictureInPictureMediaControlling" Pods --include=*.h | head -1)
-          echo "== PiP-Header: $F"
-          if [ -n "$F" ]; then
-            sed -n '/@protocol VLCPictureInPictureMediaControlling/,/@end/p;/@protocol VLCPictureInPictureWindowControlling/,/@end/p;/@protocol VLCPictureInPictureDrawable/,/@end/p' "$F" | grep -v "^ *///" | grep -v "^ *$"
-          fi
-          F=$(grep -rl "@interface VLCMediaPlayer " Pods --include=*.h | head -1)
-          echo "== Player-Header: $F"
-          [ -n "$F" ] && grep -n -E "audioTracks|textTracks|videoSize|jump|position|isSelected|trackName|mediaPlayerStateChanged|mediaPlayerTimeChanged" "$F" | head -40
+          D=$(find Pods/VLCKit -type d -path "*ios-arm64*" -name Headers | grep -v simulator | head -1)
+          [ -z "$D" ] && D=$(find Pods/VLCKit -type d -path "*ios-arm64*" -name Headers | head -1)
+          echo "== Header-Ordner: $D"
+          for F in $(grep -rl "PictureInPicture" "$D" 2>/dev/null); do
+            echo "===== $F"
+            grep -n -E "PictureInPicture|^- \(|^@protocol|^@interface|^@end" "$F" | grep -v "^[0-9]*: *\*" | head -60
+          done
       - name: App bauen (unsigniert)
         script: |
           #!/usr/bin/env bash
