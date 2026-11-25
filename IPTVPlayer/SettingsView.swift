@@ -14,6 +14,11 @@ struct SettingsView: View {
     @State private var m3uURL = ""
     @State private var showImporter = false
 
+    @AppStorage(SettingsKey.audioLanguage) private var audioLanguage: PreferredLanguage = .de
+    @AppStorage(SettingsKey.subtitleLanguage) private var subtitleLanguage: PreferredLanguage = .none
+    @AppStorage(SettingsKey.liveQuality) private var liveQuality: LiveQuality = .auto
+    @AppStorage(SettingsKey.liveUseVLC) private var liveUseVLC = false
+
     var body: some View {
         NavigationStack {
             Form {
@@ -71,6 +76,30 @@ struct SettingsView: View {
                     }
                 }
 
+                Section {
+                    Picker("Bevorzugte Tonspur", selection: $audioLanguage) {
+                        ForEach(PreferredLanguage.allCases) { Text($0.audioTitle).tag($0) }
+                    }
+                    Picker("Untertitel", selection: $subtitleLanguage) {
+                        ForEach(PreferredLanguage.allCases) { Text($0.subtitleTitle).tag($0) }
+                    }
+                } header: {
+                    Text("Filme & Serien")
+                } footer: {
+                    Text("Wird beim Start automatisch gewählt, wenn die Datei diese Spur hat. Während der Wiedergabe kannst du über das Sprechblasen-Symbol jederzeit umschalten.")
+                }
+
+                Section {
+                    Picker("Qualität", selection: $liveQuality) {
+                        ForEach(LiveQuality.allCases) { Text($0.title).tag($0) }
+                    }
+                    Toggle("Live-TV mit VLC abspielen", isOn: $liveUseVLC)
+                } header: {
+                    Text("Live-TV")
+                } footer: {
+                    Text("Die Qualität wirkt nur bei Sendern, die mehrere Stufen anbieten. VLC kann mehr Formate, dafür gibt es dann kein Bild-in-Bild und AirPlay.")
+                }
+
                 if store.source != nil {
                     Section {
                         Button("Abmelden / Playlist entfernen", role: .destructive) { store.disconnect() }
@@ -79,7 +108,7 @@ struct SettingsView: View {
             }
             .textInputAutocapitalization(.never)
             .autocorrectionDisabled()
-            .navigationTitle("Playlist")
+            .navigationTitle("Einstellungen")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) { Button("Fertig") { dismiss() } }

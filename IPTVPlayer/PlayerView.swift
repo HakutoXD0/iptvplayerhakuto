@@ -5,11 +5,33 @@ import AVKit
 final class PlayerModel: ObservableObject {
     let player: AVPlayer
     @Published var errorText: String?
-    private var statusTask: Task<Void, Never>?
+    @Published var reconnects = 0
 
-    init(url: URL) {
+    private let url: URL
+    private let maxResolution: CGSize
+    private var statusTask: Task<Void, Never>?
+    private var watchdogTask: Task<Void, Never>?
+    private var lastTime: Double = -1
+    private var stuckSince: Date?
+
+    init(url: URL, maxResolution: CGSize = .zero) {
+        self.url = url
+        self.maxResolution = maxResolution
+        player = AVPlayer()
+        loadItem()
+        startWatchdog()
+    }
+
+    /// Neues Item = frische Verbindung, springt bei Live wieder an die aktuelle Stelle
+    private func loadItem() {
         let item = AVPlayerItem(url: url)
-        player = AVPlayer(playerItem: item)
+        // Begrenzt die Qualität, wenn der Sender mehrere Stufen anbietet
+        item.preferredMaximumResolution = maxResolution
+        // Etwas mehr Puffer gegen kurze Aussetzer
+        item.preferredForwardBufferDuration = 8
+        player.replaceCurrentItem(with: item)
+
+        statusTask?.cancel()
         statusTask = Task { [weak self] in
             for await status in item.publisher(for: \.status).values where status == .failed {
                 self?.errorText = item.error?.localizedDescription ?? "Unbekannter Fehler"
@@ -17,13 +39,70 @@ final class PlayerModel: ObservableObject {
         }
     }
 
+    /// Erkennt hängende Streams und verbindet automatisch neu
+    /// (statt dass man selbst Pause/Play drücken muss)
+    private func startWatchdog() {
+        watchdogTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(2))
+                self?.checkForStall()
+            }
+        }
+    }
+
+    private func checkForStall() {
+        // Vom Nutzer pausiert → nichts tun
+        guard player.timeControlStatus != .paused || player.rate != 0 else {
+            stuckSince = nil
+            return
+        }
+        let now = player.currentTime().seconds
+        let advancing = now.isFinite && now != lastTime
+        lastTime = now
+
+        if advancing && player.timeControlStatus == .playing {
+            stuckSince = nil
+            return
+        }
+        if stuckSince == nil {
+            stuckSince = Date()
+        } else if let since = stuckSince, Date().timeIntervalSince(since) > 6 {
+            reconnect()
+        }
+    }
+
+    private func reconnect() {
+        stuckSince = nil
+        lastTime = -1
+        reconnects += 1
+        loadItem()
+        player.play()
+    }
+
     func stop() {
         player.pause()
         statusTask?.cancel()
+        watchdogTask?.cancel()
     }
 }
 
+/// Wählt den passenden Player: Live-TV → Apple-Player (Bild-in-Bild, AirPlay),
+/// Filme/Serien/Downloads → VLC (kann MKV, mehrere Tonspuren, Untertitel)
 struct PlayerView: View {
+    let channel: Channel
+    @AppStorage(SettingsKey.liveUseVLC) private var liveUseVLC = false
+
+    var body: some View {
+        if channel.kind == .live && !liveUseVLC {
+            NativePlayerView(channel: channel)
+        } else {
+            VLCPlayerScreen(channel: channel)
+        }
+    }
+}
+
+/// Apples Player für Live-TV (HLS)
+struct NativePlayerView: View {
     @EnvironmentObject private var store: PlaylistStore
     let channel: Channel
     @StateObject private var model: PlayerModel
@@ -31,9 +110,9 @@ struct PlayerView: View {
 
     init(channel: Channel) {
         self.channel = channel
-        // Heruntergeladene Datei wird offline abgespielt
         let url = DownloadManager.shared.localFileURL(for: channel) ?? channel.streamURL
-        _model = StateObject(wrappedValue: PlayerModel(url: url))
+        let quality = LiveQuality(rawValue: UserDefaults.standard.string(forKey: SettingsKey.liveQuality) ?? "") ?? .auto
+        _model = StateObject(wrappedValue: PlayerModel(url: url, maxResolution: quality.maxResolution))
     }
 
     var body: some View {
@@ -53,7 +132,7 @@ struct PlayerView: View {
                 if let error = model.errorText {
                     Section("Wiedergabe nicht möglich") {
                         Text(error)
-                        Text("Formate wie .ts oder .mkv kann der iOS-Player nicht abspielen. Dafür bauen wir als Nächstes VLCKit ein.")
+                        Text("Tipp: In den Einstellungen „Live-TV mit VLC abspielen“ einschalten – VLC kann mehr Formate.")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
                 }

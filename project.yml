@@ -8,8 +8,13 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.0"
-    MARKETING_VERSION: "1.1"
+    MARKETING_VERSION: "1.2"
     CURRENT_PROJECT_VERSION: "1"
+
+packages:
+  VLCKitSPM:
+    url: https://github.com/koombea/vlckit-spm
+    from: 3.6.0
 
 targets:
   IPTVPlayer:
@@ -17,6 +22,9 @@ targets:
     platform: iOS
     sources:
       - path: IPTVPlayer
+    dependencies:
+      - package: VLCKitSPM
+        product: VLCKitSPM
     info:
       path: IPTVPlayer/Info.plist
       properties:
