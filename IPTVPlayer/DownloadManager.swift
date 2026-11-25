@@ -191,6 +191,12 @@ nonisolated final class DownloadDelegate: NSObject, URLSessionDownloadDelegate, 
 
 /// Weckt die App, wenn Hintergrund-Downloads fertig werden
 final class AppDelegate: NSObject, UIApplicationDelegate {
+    /// Erlaubt der Vollbild-Taste, Querformat zu erzwingen (auch mit Rotationssperre)
+    func application(_ application: UIApplication,
+                     supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
+        OrientationController.mask
+    }
+
     func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
                      completionHandler: @escaping () -> Void) {
         DownloadManager.shared.backgroundCompletionHandler = completionHandler

@@ -149,6 +149,8 @@ struct VLCVideoSurface: UIViewRepresentable {
     func makeUIView(context: Context) -> UIView {
         let view = UIView()
         view.backgroundColor = .black
+        // Wichtig: sonst fängt VLCs Bildfläche alle Fingertipps ab
+        view.isUserInteractionEnabled = false
         model.attach(to: view)
         return view
     }
@@ -219,6 +221,7 @@ struct VLCPlayerScreen: View {
             model.stop()
             UIApplication.shared.isIdleTimerDisabled = false
             hideTask?.cancel()
+            OrientationController.reset()
         }
         .task {
             guard isLive, let id = channel.xtreamStreamID, let client = store.xtreamClient else { return }
@@ -231,6 +234,9 @@ struct VLCPlayerScreen: View {
     private var playerArea: some View {
         ZStack {
             VLCVideoSurface(model: model)
+
+            // Unsichtbare Fläche über dem Bild: Tippen blendet die Bedienung ein/aus
+            Color.clear
                 .contentShape(Rectangle())
                 .onTapGesture { toggleControls() }
 
@@ -269,8 +275,20 @@ struct VLCPlayerScreen: View {
             }
 
             VStack {
-                // Oben rechts: Ton & Untertitel
+                // Oben: Vollbild links, Ton & Untertitel rechts
                 HStack {
+                    Button {
+                        if isLandscape { OrientationController.exitFullscreen() }
+                        else { OrientationController.enterFullscreen() }
+                        scheduleHide()
+                    } label: {
+                        Image(systemName: isLandscape
+                              ? "arrow.down.right.and.arrow.up.left"
+                              : "arrow.up.left.and.arrow.down.right")
+                            .font(.title3)
+                            .padding(10)
+                            .background(.black.opacity(0.4), in: Circle())
+                    }
                     Spacer()
                     trackMenu
                 }
@@ -410,7 +428,7 @@ struct VLCPlayerScreen: View {
             }
 
             Section {
-                Text("Tipp: iPhone quer halten für Vollbild. Bevorzugte Sprache und Untertitel stellst du in den Einstellungen (Zahnrad) ein.")
+                Text("Tipp: Bild antippen für die Bedienung. Vollbild über die Taste oben links – klappt auch mit Rotationssperre. Bild-in-Bild gibt es nur für MP4-Filme, nicht für MKV.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }

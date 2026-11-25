@@ -28,6 +28,15 @@ enum PreferredLanguage: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Zweistelliger Sprachcode für Apples Player
+    var isoCode: String {
+        switch self {
+        case .none: ""
+        case .bks: "hr"
+        default: rawValue
+        }
+    }
+
     /// Sprachcodes für VLC (:audio-language / :sub-language)
     var vlcCodes: String {
         switch self {

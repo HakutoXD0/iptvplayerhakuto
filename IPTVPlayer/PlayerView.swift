@@ -14,12 +14,18 @@ final class PlayerModel: ObservableObject {
     private var lastTime: Double = -1
     private var stuckSince: Date?
 
-    init(url: URL, maxResolution: CGSize = .zero) {
+    init(url: URL, maxResolution: CGSize = .zero, isLive: Bool = true, preferredLanguage: String? = nil) {
         self.url = url
         self.maxResolution = maxResolution
         player = AVPlayer()
+        if let preferredLanguage {
+            // Bevorzugte Tonspur bei MP4-Dateien mit mehreren Sprachen
+            player.setMediaSelectionCriteria(
+                AVPlayerMediaSelectionCriteria(preferredLanguages: [preferredLanguage], preferredMediaCharacteristics: nil),
+                forMediaCharacteristic: .audible)
+        }
         loadItem()
-        startWatchdog()
+        if isLive { startWatchdog() }
     }
 
     /// Neues Item = frische Verbindung, springt bei Live wieder an die aktuelle Stelle
@@ -92,8 +98,17 @@ struct PlayerView: View {
     let channel: Channel
     @AppStorage(SettingsKey.liveUseVLC) private var liveUseVLC = false
 
+    /// Formate, die Apples Player kann – dort gibt es Bild-in-Bild und AirPlay
+    private static let nativeFormats: Set<String> = ["mp4", "m4v", "mov", "m3u8"]
+
+    private var useNative: Bool {
+        if channel.kind == .live { return !liveUseVLC }
+        let url = DownloadManager.shared.localFileURL(for: channel) ?? channel.streamURL
+        return Self.nativeFormats.contains(url.pathExtension.lowercased())
+    }
+
     var body: some View {
-        if channel.kind == .live && !liveUseVLC {
+        if useNative {
             NativePlayerView(channel: channel)
         } else {
             VLCPlayerScreen(channel: channel)
@@ -111,8 +126,15 @@ struct NativePlayerView: View {
     init(channel: Channel) {
         self.channel = channel
         let url = DownloadManager.shared.localFileURL(for: channel) ?? channel.streamURL
-        let quality = LiveQuality(rawValue: UserDefaults.standard.string(forKey: SettingsKey.liveQuality) ?? "") ?? .auto
-        _model = StateObject(wrappedValue: PlayerModel(url: url, maxResolution: quality.maxResolution))
+        let defaults = UserDefaults.standard
+        let quality = LiveQuality(rawValue: defaults.string(forKey: SettingsKey.liveQuality) ?? "") ?? .auto
+        let audio = PreferredLanguage(rawValue: defaults.string(forKey: SettingsKey.audioLanguage) ?? "") ?? .de
+        let isLive = channel.kind == .live
+        _model = StateObject(wrappedValue: PlayerModel(
+            url: url,
+            maxResolution: isLive ? quality.maxResolution : .zero,
+            isLive: isLive,
+            preferredLanguage: audio == .none ? nil : audio.isoCode))
     }
 
     var body: some View {
