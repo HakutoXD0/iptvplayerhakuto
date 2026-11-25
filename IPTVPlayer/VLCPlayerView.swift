@@ -99,7 +99,7 @@ final class VLCPlayerModel: NSObject, ObservableObject, VLCMediaPlayerDelegate {
     func mediaPlayerTimeChanged(_ aNotification: Notification) {
         isBuffering = false
         if !isSeeking { position = player.position }
-        timeText = player.time?.stringValue ?? ""
+        timeText = player.time.stringValue ?? ""
         remainingText = player.remainingTime?.stringValue ?? ""
         if audioTracks.isEmpty && subtitleTracks.isEmpty { refreshTracks() }
     }
