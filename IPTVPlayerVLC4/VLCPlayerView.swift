@@ -49,10 +49,16 @@ final class VLCPlayerModel: NSObject, ObservableObject, VLCMediaPlayerDelegate {
         player.delegate = self
     }
 
-    func attach(to view: VLCContainerView) {
+    /// Eine einzige Bildfläche pro Wiedergabe – wird nie ausgetauscht
+    lazy var surfaceView: VLCContainerView = {
+        let view = VLCContainerView()
+        view.backgroundColor = .black
+        // Wichtig: sonst fängt VLCs Bildfläche alle Fingertipps ab
+        view.isUserInteractionEnabled = false
         view.model = self
         player.drawable = view
-    }
+        return view
+    }()
 
     func play() { player.play() }
 
@@ -195,12 +201,7 @@ struct VLCVideoSurface: UIViewRepresentable {
     let model: VLCPlayerModel
 
     func makeUIView(context: Context) -> UIView {
-        let view = VLCContainerView()
-        view.backgroundColor = .black
-        // Wichtig: sonst fängt VLCs Bildfläche alle Fingertipps ab
-        view.isUserInteractionEnabled = false
-        model.attach(to: view)
-        return view
+        model.surfaceView
     }
 
     func updateUIView(_ uiView: UIView, context: Context) {}
@@ -218,6 +219,7 @@ struct VLCPlayerScreen: View {
     @State private var sliderValue: Float = 0
     @State private var isDragging = false
     @State private var epg: [XtreamEPGEntry] = []
+    @State private var screenSize: CGSize = UIScreen.main.bounds.size
 
     init(channel: Channel) {
         self.channel = channel
@@ -233,21 +235,24 @@ struct VLCPlayerScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if isLandscape {
-                playerArea
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(.black)
-            } else {
-                playerArea
-                    .frame(maxWidth: .infinity)
-                    .aspectRatio(16 / 9, contentMode: .fit)
-                    .background(.black)
-            }
+            // Immer DIESELBE Bildfläche – nur die Größe ändert sich.
+            // (Ein Neuaufbau beim Drehen ließ VLC ins Leere zeichnen → schwarzes Bild)
+            playerArea
+                .frame(width: screenSize.width,
+                       height: isLandscape ? screenSize.height : screenSize.width * 9 / 16)
+                .background(.black)
 
             if !isLandscape {
                 infoList
             }
         }
+        // Volle verfügbare Fläche messen (nicht die des Inhalts)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(GeometryReader { geo in
+            Color.clear
+                .onAppear { screenSize = geo.size }
+                .onChange(of: geo.size) { _, new in screenSize = new }
+        })
         .background(isLandscape ? Color.black : Color.clear)
         .ignoresSafeArea(edges: isLandscape ? .all : [])
         .navigationTitle(channel.name)
