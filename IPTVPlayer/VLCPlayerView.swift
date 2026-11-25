@@ -238,7 +238,6 @@ struct VLCPlayerScreen: View {
     @State private var sliderValue: Float = 0
     @State private var isDragging = false
     @State private var epg: [XtreamEPGEntry] = []
-    @State private var screenSize: CGSize = UIScreen.main.bounds.size
     @AppStorage("videoFill") private var videoFill = false
     @State private var fillHint: String?
 
@@ -255,29 +254,21 @@ struct VLCPlayerScreen: View {
     private var isLive: Bool { channel.kind == .live }
 
     var body: some View {
-        VStack(spacing: 0) {
-            // Immer DIESELBE Bildfläche – nur die Größe ändert sich.
-            // (Ein Neuaufbau beim Drehen ließ VLC ins Leere zeichnen → schwarzes Bild)
-            // Hochformat: feste 16:9-Höhe; Querformat: genau der Bildschirm (nie größer)
-            playerArea
-                .frame(width: isLandscape ? nil : screenSize.width,
-                       height: isLandscape ? nil : screenSize.width * 9 / 16)
-                .frame(maxWidth: isLandscape ? .infinity : nil,
-                       maxHeight: isLandscape ? .infinity : nil)
-                .clipped()
-                .background(.black)
+        // Größe kommt vom verfügbaren Platz (nicht vom Inhalt) – so bleibt nach dem Drehen nichts hängen
+        GeometryReader { geo in
+            VStack(spacing: 0) {
+                // Immer DIESELBE Bildfläche – nur die Größe ändert sich
+                playerArea
+                    .frame(width: geo.size.width,
+                           height: isLandscape ? geo.size.height : geo.size.width * 9 / 16)
+                    .clipped()
+                    .background(.black)
 
-            if !isLandscape {
-                infoList
+                if !isLandscape {
+                    infoList
+                }
             }
         }
-        // Volle verfügbare Fläche messen (nicht die des Inhalts)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        .background(GeometryReader { geo in
-            Color.clear
-                .onAppear { screenSize = geo.size }
-                .onChange(of: geo.size) { _, new in screenSize = new }
-        })
         .background(isLandscape ? Color.black : Color.clear)
         .ignoresSafeArea(edges: isLandscape ? .all : [])
         .navigationTitle(channel.name)
