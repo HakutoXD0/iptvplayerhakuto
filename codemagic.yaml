@@ -29,3 +29,46 @@ workflows:
           zip -qry "IPTVPlayer-v${VERSION}.ipa" Payload
     artifacts:
       - IPTVPlayer-v*.ipa
+
+  ios-beta:
+    name: IPTV Beta (VLCKit 4, Bild-in-Bild)
+    max_build_duration: 45
+    instance_type: mac_mini_m2
+    environment:
+      xcode: latest
+      cocoapods: default
+    scripts:
+      - name: Projekt erzeugen und VLCKit 4 laden
+        script: |
+          brew install xcodegen
+          xcodegen generate --spec project-beta.yml
+          pod install --repo-update
+      - name: VLCKit-4-Schnittstellen ins Log schreiben
+        script: |
+          #!/usr/bin/env bash
+          for NAME in VLCDrawable.h VLCMediaPlayer.h VLCTime.h VLCMedia.h; do
+            H=$(find Pods -name "$NAME" | grep "ios-arm64/" | head -1)
+            echo "===== $H"
+            grep -n -E "@protocol|@property|^- \(|^\+ \(|NS_SWIFT_NAME|typedef NS_ENUM|^ *VLCMediaPlayerState|^ *VLCMediaPlayerStateChanged" "$H" | grep -v -E "^\s*$" | head -150 || true
+          done
+      - name: App bauen (unsigniert)
+        script: |
+          #!/usr/bin/env bash
+          set -o pipefail
+          xcodebuild \
+            -workspace IPTVPlayerBeta.xcworkspace \
+            -scheme IPTVPlayerBeta \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build 2>&1 | grep -E "error:|BUILD (SUCCEEDED|FAILED)|\*\* "
+      - name: IPA packen
+        script: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/IPTVPlayerBeta.app Payload/
+          VERSION=$(/usr/libexec/PlistBuddy -c "Print CFBundleShortVersionString" Payload/IPTVPlayerBeta.app/Info.plist)
+          zip -qry "IPTVPlayer-v${VERSION}-beta.ipa" Payload
+    artifacts:
+      - IPTVPlayer-v*-beta.ipa
