@@ -76,6 +76,12 @@ final class VLCPlayerModel: NSObject, ObservableObject, VLCMediaPlayerDelegate {
 
     func beginSeek() { isSeeking = true }
 
+    /// Seitenverhältnis des Videos (Fallback 16:9, solange VLC es noch nicht kennt)
+    var videoAspect: CGFloat {
+        let size: CGSize = player.videoSize
+        return size.width > 0 && size.height > 0 ? size.width / size.height : 16 / 9
+    }
+
     // MARK: Verlauf
 
     private func currentMs() -> Double {
@@ -233,6 +239,8 @@ struct VLCPlayerScreen: View {
     @State private var isDragging = false
     @State private var epg: [XtreamEPGEntry] = []
     @State private var screenSize: CGSize = UIScreen.main.bounds.size
+    @AppStorage("videoFill") private var videoFill = false
+    @State private var fillHint: String?
 
     init(channel: Channel) {
         self.channel = channel
@@ -308,13 +316,28 @@ struct VLCPlayerScreen: View {
     // MARK: Bild + Bedienelemente
 
     private var playerArea: some View {
+        GeometryReader { geo in
         ZStack {
             VLCVideoSurface(model: model)
+                .scaleEffect(videoFill ? fillScale(in: geo.size) : 1)
+                .animation(.easeInOut(duration: 0.25), value: videoFill)
 
-            // Unsichtbare Fläche über dem Bild: Tippen blendet die Bedienung ein/aus
+            // Unsichtbare Fläche über dem Bild:
+            // 1× Tippen = Bedienung ein/aus, 2× Tippen = Ganzes Bild ⇄ Bildschirm füllen
             Color.clear
                 .contentShape(Rectangle())
+                .onTapGesture(count: 2) { toggleFill() }
                 .onTapGesture { toggleControls() }
+
+            if let hint = fillHint {
+                Text(hint)
+                    .font(.footnote.bold())
+                    .padding(.horizontal, 14).padding(.vertical, 8)
+                    .background(.black.opacity(0.6), in: Capsule())
+                    .foregroundStyle(.white)
+                    .transition(.opacity)
+                    .allowsHitTesting(false)
+            }
 
             if model.isBuffering && model.errorText == nil {
                 ProgressView().tint(.white).scaleEffect(1.4)
@@ -325,12 +348,35 @@ struct VLCPlayerScreen: View {
                     .transition(.opacity)
             }
         }
+        .frame(width: geo.size.width, height: geo.size.height)
+        .clipped()
         .animation(.easeInOut(duration: 0.2), value: showControls)
+        .animation(.easeInOut(duration: 0.2), value: fillHint)
+        }
+    }
+
+    /// Vergrößerung, damit das Video die ganze Fläche ausfüllt (Ränder werden abgeschnitten)
+    private func fillScale(in size: CGSize) -> CGFloat {
+        guard size.width > 0, size.height > 0 else { return 1 }
+        let ar = model.videoAspect
+        let fitWidth = min(size.width, size.height * ar)
+        let fitHeight = fitWidth / ar
+        return max(size.width / fitWidth, size.height / fitHeight)
+    }
+
+    private func toggleFill() {
+        videoFill.toggle()
+        fillHint = videoFill ? "Bildschirm füllen" : "Ganzes Bild"
+        Task {
+            try? await Task.sleep(for: .seconds(1.2))
+            fillHint = nil
+        }
     }
 
     private var controls: some View {
         ZStack {
             Color.black.opacity(0.35)
+                .onTapGesture(count: 2) { toggleFill() }
                 .onTapGesture { toggleControls() }
 
             // Mitte: zurück / Play / vor
@@ -517,7 +563,7 @@ struct VLCPlayerScreen: View {
             }
 
             Section {
-                Text("Tipp: Bild antippen für die Bedienung. Vollbild über die Taste oben links – klappt auch mit Rotationssperre. Bild-in-Bild gibt es nur für MP4-Filme, nicht für MKV.")
+                Text("Tipp: Bild antippen für die Bedienung, doppelt tippen zum Füllen/Ganzes Bild. Vollbild über die Taste oben links – klappt auch mit Rotationssperre. Bild-in-Bild gibt es nur für MP4-Filme, nicht für MKV.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }
