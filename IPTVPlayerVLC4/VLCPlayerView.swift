@@ -73,7 +73,17 @@ final class VLCPlayerModel: NSObject, ObservableObject, VLCMediaPlayerDelegate {
         if player.isPlaying { player.pause() } else { player.play() }
     }
 
-    func stop() { player.stop() }
+    func stop() {
+        player.delegate = nil
+        player.pause()
+        player.stop()
+        // Player + Bildfläche noch ein paar Sekunden behalten, bis VLC 4 fertig gestoppt hat
+        VLCPlayerKeeper.keepAlive([player, surfaceView])
+    }
+
+    deinit {
+        player.delegate = nil
+    }
 
     func jump(seconds: Int32) {
         // Über die Position springen – unabhängig von API-Änderungen in VLCKit 4
@@ -196,6 +206,7 @@ final class VLCPlayerModel: NSObject, ObservableObject, VLCMediaPlayerDelegate {
         }
         isPlaying = player.isPlaying
         refreshTracks()
+        updatePiPCache()
         invalidatePiP()
     }
 
@@ -209,6 +220,14 @@ final class VLCPlayerModel: NSObject, ObservableObject, VLCMediaPlayerDelegate {
         remainingText = remaining?.stringValue ?? ""
         if audioTracks.isEmpty && subtitleTracks.isEmpty { refreshTracks() }
         handleHistory()
+        updatePiPCache()
+    }
+
+    private func updatePiPCache() {
+        let adapter = surfaceView.pipAdapter
+        adapter.cachedLengthMs = Int64(lengthMs())
+        adapter.cachedTimeMs = Int64(currentMs())
+        adapter.cachedPlaying = player.isPlaying
     }
 
     // MARK: Spuren
@@ -249,7 +268,7 @@ final class VLCContainerView: UIView {
     weak var model: VLCPlayerModel? {
         didSet { pipAdapter.model = model }
     }
-    private let pipAdapter = PiPMediaAdapter()
+    let pipAdapter = PiPMediaAdapter()
 
     private static let registerProtocol: Void = {
         if let proto = NSProtocolFromString("VLCPictureInPictureDrawable") {
@@ -299,20 +318,48 @@ final class VLCContainerView: UIView {
 final class PiPMediaAdapter: NSObject {
     weak var model: VLCPlayerModel?
 
-    @objc func play() { model?.player.play() }
-    @objc func pause() { model?.player.pause() }
+    // Werte werden auf dem Main-Thread zwischengespeichert, weil VLC sie aus einem
+    // Hintergrund-Thread abfragt (direkter Zugriff dort hat die App abstürzen lassen)
+    var cachedLengthMs: Int64 = 0
+    var cachedTimeMs: Int64 = 0
+    var cachedPlaying = false
 
-    @objc(seekBy:completion:) func seekBy(_ offset: Int64, completion: (@convention(block) () -> Void)?) {
-        model?.jump(milliseconds: offset)
-        if let completion { DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { completion() } }
+    @objc func play() {
+        DispatchQueue.main.async { [weak self] in self?.model?.player.play() }
     }
 
-    @objc(seekBy:) func seekBy(_ offset: Int64) { model?.jump(milliseconds: offset) }
+    @objc func pause() {
+        DispatchQueue.main.async { [weak self] in self?.model?.player.pause() }
+    }
 
-    @objc func mediaLength() -> Int64 { Int64(model?.lengthMsPublic ?? 0) }
-    @objc func mediaTime() -> Int64 { Int64(model?.timeMsPublic ?? 0) }
-    @objc func isMediaSeekable() -> Bool { (model?.lengthMsPublic ?? 0) > 0 }
-    @objc func isMediaPlaying() -> Bool { model?.player.isPlaying ?? false }
+    @objc(seekBy:completion:) func seekBy(_ offset: Int64, completion: (@convention(block) () -> Void)?) {
+        DispatchQueue.main.async { [weak self] in
+            self?.model?.jump(milliseconds: offset)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { completion?() }
+        }
+    }
+
+    @objc(seekBy:) func seekBy(_ offset: Int64) {
+        DispatchQueue.main.async { [weak self] in self?.model?.jump(milliseconds: offset) }
+    }
+
+    @objc func mediaLength() -> Int64 { cachedLengthMs }
+    @objc func mediaTime() -> Int64 { cachedTimeMs }
+    @objc func isMediaSeekable() -> Bool { cachedLengthMs > 0 }
+    @objc func isMediaPlaying() -> Bool { cachedPlaying }
+}
+
+/// Hält gestoppte VLC-4-Player noch kurz am Leben – VLC 4 stoppt asynchron,
+/// sofortiges Freigeben hat beim Zurückgehen zum Absturz geführt
+enum VLCPlayerKeeper {
+    private static var kept: [AnyObject] = []
+
+    static func keepAlive(_ objects: [AnyObject], seconds: Double = 4) {
+        kept.append(contentsOf: objects)
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
+            kept.removeAll { item in objects.contains { $0 === item } }
+        }
+    }
 }
 
 /// Die Fläche, auf die VLC das Bild zeichnet
