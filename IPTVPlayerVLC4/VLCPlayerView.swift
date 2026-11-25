@@ -27,8 +27,8 @@ final class VLCPlayerModel: NSObject, ObservableObject, VLCMediaPlayerDelegate {
     @Published var isInPictureInPicture = false
 
     /// Wird von VLC übergeben, sobald Bild-in-Bild bereit ist
-    var pipController: VLCPictureInPictureWindowControlling? {
-        didSet { canPictureInPicture = pipController != nil }
+    var pipWindow: AnyObject? {
+        didSet { canPictureInPicture = pipWindow != nil }
     }
 
     @Published var resumedAt: String?
@@ -158,9 +158,27 @@ final class VLCPlayerModel: NSObject, ObservableObject, VLCMediaPlayerDelegate {
     }
 
     func togglePictureInPicture() {
-        guard let pip = pipController else { return }
-        if isInPictureInPicture { pip.stopPictureInPicture() } else { pip.startPictureInPicture() }
+        guard let pip = pipWindow else { return }
+        let sel = NSSelectorFromString(isInPictureInPicture ? "stopPictureInPicture" : "startPictureInPicture")
+        if pip.responds(to: sel) { _ = pip.perform(sel) }
+        // Falls VLC den Status nicht meldet: selbst umschalten
+        isInPictureInPicture.toggle()
     }
+
+    private func invalidatePiP() {
+        let sel = NSSelectorFromString("invalidatePlaybackState")
+        if let pip = pipWindow, pip.responds(to: sel) { _ = pip.perform(sel) }
+    }
+
+    func jump(milliseconds: Int64) {
+        let length = lengthMs()
+        guard length > 0 else { return }
+        let target = min(max(currentMs() + Double(milliseconds), 0), length)
+        player.position = .init(target / length)
+    }
+
+    var lengthMsPublic: Double { lengthMs() }
+    var timeMsPublic: Double { currentMs() }
 
     // MARK: VLCMediaPlayerDelegate (VLCKit 4)
 
@@ -178,7 +196,7 @@ final class VLCPlayerModel: NSObject, ObservableObject, VLCMediaPlayerDelegate {
         }
         isPlaying = player.isPlaying
         refreshTracks()
-        pipController?.invalidatePlaybackState()
+        invalidatePiP()
     }
 
     func mediaPlayerTimeChanged(_ aNotification: Notification) {
@@ -224,33 +242,77 @@ final class VLCPlayerModel: NSObject, ObservableObject, VLCMediaPlayerDelegate {
     }
 }
 
-/// Bildfläche für VLC 4: wächst beim Drehen mit und meldet Bild-in-Bild an
-final class VLCContainerView: UIView, VLCPictureInPictureDrawable {
-    weak var model: VLCPlayerModel?
+/// Bildfläche für VLC 4: wächst beim Drehen mit und meldet Bild-in-Bild an.
+/// Die Bild-in-Bild-Schnittstellen von VLCKit 4 (Vorabversion) ändern sich noch oft –
+/// daher werden sie hier über die Objective-C-Laufzeit angebunden statt über feste Swift-Namen.
+final class VLCContainerView: UIView {
+    weak var model: VLCPlayerModel? {
+        didSet { pipAdapter.model = model }
+    }
+    private let pipAdapter = PiPMediaAdapter()
+
+    private static let registerProtocol: Void = {
+        if let proto = NSProtocolFromString("VLCPictureInPictureDrawable") {
+            class_addProtocol(VLCContainerView.self, proto)
+        }
+        if let proto = NSProtocolFromString("VLCPictureInPictureMediaControlling") {
+            class_addProtocol(PiPMediaAdapter.self, proto)
+        }
+    }()
+
+    override init(frame: CGRect) {
+        _ = Self.registerProtocol
+        super.init(frame: frame)
+    }
+
+    required init?(coder: NSCoder) { fatalError() }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         for sub in subviews { sub.frame = bounds }
     }
 
-    // VLCPictureInPictureDrawable
-    func mediaController() -> (any VLCPictureInPictureMediaControlling)! {
-        model?.player
-    }
+    // MARK: VLCPictureInPictureDrawable (per Laufzeit)
 
-    func pictureInPictureReady() -> (((any VLCPictureInPictureWindowControlling)?) -> Void)! {
-        { [weak self] controller in
+    @objc func mediaController() -> AnyObject { pipAdapter }
+
+    @objc func pictureInPictureReady() -> (@convention(block) (AnyObject?) -> Void) {
+        return { [weak self] controller in
             DispatchQueue.main.async {
-                guard let model = self?.model else { return }
-                model.pipController = controller
-                controller?.stateChangeEventHandler = { [weak model] started in
-                    DispatchQueue.main.async { model?.isInPictureInPicture = started }
+                guard let model = self?.model, let controller else { return }
+                model.pipWindow = controller
+                let setter = NSSelectorFromString("setStateChangeEventHandler:")
+                if controller.responds(to: setter) {
+                    let handler: @convention(block) (Bool) -> Void = { [weak model] started in
+                        DispatchQueue.main.async { model?.isInPictureInPicture = started }
+                    }
+                    _ = controller.perform(setter, with: handler as AnyObject)
                 }
             }
         }
     }
 
-    func canStartPictureInPictureAutomaticallyFromInline() -> Bool { true }
+    @objc func canStartPictureInPictureAutomaticallyFromInline() -> Bool { true }
+}
+
+/// Liefert dem Bild-in-Bild-Fenster Infos und nimmt Play/Pause/Spulen entgegen
+final class PiPMediaAdapter: NSObject {
+    weak var model: VLCPlayerModel?
+
+    @objc func play() { model?.player.play() }
+    @objc func pause() { model?.player.pause() }
+
+    @objc(seekBy:completion:) func seekBy(_ offset: Int64, completion: (@convention(block) () -> Void)?) {
+        model?.jump(milliseconds: offset)
+        if let completion { DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { completion() } }
+    }
+
+    @objc(seekBy:) func seekBy(_ offset: Int64) { model?.jump(milliseconds: offset) }
+
+    @objc func mediaLength() -> Int64 { Int64(model?.lengthMsPublic ?? 0) }
+    @objc func mediaTime() -> Int64 { Int64(model?.timeMsPublic ?? 0) }
+    @objc func isMediaSeekable() -> Bool { (model?.lengthMsPublic ?? 0) > 0 }
+    @objc func isMediaPlaying() -> Bool { model?.player.isPlaying ?? false }
 }
 
 /// Die Fläche, auf die VLC das Bild zeichnet
