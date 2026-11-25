@@ -288,9 +288,13 @@ struct VLCPlayerScreen: View {
         VStack(spacing: 0) {
             // Immer DIESELBE Bildfläche – nur die Größe ändert sich.
             // (Ein Neuaufbau beim Drehen ließ VLC ins Leere zeichnen → schwarzes Bild)
+            // Hochformat: feste 16:9-Höhe; Querformat: genau der Bildschirm (nie größer)
             playerArea
-                .frame(width: screenSize.width,
-                       height: isLandscape ? screenSize.height : screenSize.width * 9 / 16)
+                .frame(width: isLandscape ? nil : screenSize.width,
+                       height: isLandscape ? nil : screenSize.width * 9 / 16)
+                .frame(maxWidth: isLandscape ? .infinity : nil,
+                       maxHeight: isLandscape ? .infinity : nil)
+                .clipped()
                 .background(.black)
 
             if !isLandscape {
@@ -410,8 +414,8 @@ struct VLCPlayerScreen: View {
                     }
                     trackMenu
                 }
-                .padding(.horizontal, 12)
-                .padding(.top, isLandscape ? 16 : 8)
+                .padding(.horizontal, isLandscape ? 56 : 12)
+                .padding(.top, isLandscape ? 20 : 8)
 
                 Spacer()
 
@@ -433,8 +437,8 @@ struct VLCPlayerScreen: View {
                         }
                         .font(.caption.monospacedDigit())
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, isLandscape ? 20 : 8)
+                    .padding(.horizontal, isLandscape ? 56 : 16)
+                    .padding(.bottom, isLandscape ? 24 : 8)
                 }
             }
         }
