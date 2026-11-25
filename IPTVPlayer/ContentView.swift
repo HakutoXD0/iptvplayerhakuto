@@ -20,6 +20,11 @@ struct ContentView: View {
                     .tabItem { Label("Serien", systemImage: "play.rectangle.on.rectangle") }
             }
 
+            if !store.movies.channels.isEmpty || !store.series.isEmpty {
+                HistoryView(showSettings: $showSettings)
+                    .tabItem { Label("Weiterschauen", systemImage: "clock.arrow.circlepath") }
+            }
+
             DownloadsView(showSettings: $showSettings)
                 .tabItem { Label("Downloads", systemImage: "arrow.down.circle") }
         }

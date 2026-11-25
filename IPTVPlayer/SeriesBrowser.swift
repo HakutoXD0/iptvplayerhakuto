@@ -65,6 +65,7 @@ struct SeriesBrowser: View {
 
 struct SeriesDetailView: View {
     @EnvironmentObject private var store: PlaylistStore
+    @ObservedObject private var history = WatchHistory.shared
     let series: XtreamSeries
     @State private var info: XtreamSeriesInfo?
     @State private var error: String?
@@ -79,11 +80,25 @@ struct SeriesDetailView: View {
                     Section("Staffel \(season.season)") {
                         ForEach(season.episodes) { ep in
                             if let url = client.episodeURL(ep.id, ext: ep.containerExtension) {
-                                NavigationLink(value: Channel(
+                                let channel = Channel(
                                     id: "episode-\(ep.id)", name: ep.title, group: series.name,
-                                    logoURL: series.cover.flatMap(URL.init(string:)), streamURL: url, kind: .episode
-                                )) {
-                                    Text("\(ep.episodeNum). \(ep.title)").lineLimit(2)
+                                    logoURL: series.cover.flatMap(URL.init(string:)), streamURL: url, kind: .episode,
+                                    seriesID: series.id, seriesName: series.name,
+                                    seriesCover: series.cover.flatMap(URL.init(string:)),
+                                    season: season.season, episode: ep.episodeNum)
+                                NavigationLink(value: channel) {
+                                    HStack {
+                                        Text("\(ep.episodeNum). \(ep.title)").lineLimit(2)
+                                        Spacer()
+                                        if let e = history.entry(for: channel) {
+                                            if e.isFinished {
+                                                Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                                            } else {
+                                                Text("\(Int(e.progress * 100)) %")
+                                                    .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

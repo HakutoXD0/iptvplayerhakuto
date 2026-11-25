@@ -10,6 +10,8 @@ final class PlayerModel: ObservableObject {
     private let url: URL
     private let maxResolution: CGSize
     private var statusTask: Task<Void, Never>?
+    private var timeObserver: Any?
+    private var historyChannel: Channel?
     private var watchdogTask: Task<Void, Never>?
     private var lastTime: Double = -1
     private var stuckSince: Date?
@@ -26,6 +28,27 @@ final class PlayerModel: ObservableObject {
         }
         loadItem()
         if isLive { startWatchdog() }
+    }
+
+    /// Verlauf für Filme/Folgen: an alter Stelle weitermachen + alle 5 s merken
+    func enableHistory(for channel: Channel) {
+        guard channel.kind != .live else { return }
+        historyChannel = channel
+        if let start = WatchHistory.shared.resumePosition(for: channel) {
+            player.seek(to: CMTime(seconds: start, preferredTimescale: 600))
+        }
+        timeObserver = player.addPeriodicTimeObserver(forInterval: CMTime(seconds: 5, preferredTimescale: 1),
+                                                      queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { self?.saveProgress() }
+        }
+    }
+
+    func saveProgress() {
+        guard let channel = historyChannel, let item = player.currentItem else { return }
+        let pos = player.currentTime().seconds
+        let dur = item.duration.seconds
+        guard pos.isFinite, dur.isFinite, dur > 0 else { return }
+        WatchHistory.shared.update(channel: channel, position: pos, duration: dur)
     }
 
     /// Neues Item = frische Verbindung, springt bei Live wieder an die aktuelle Stelle
@@ -86,6 +109,9 @@ final class PlayerModel: ObservableObject {
     }
 
     func stop() {
+        saveProgress()
+        if let timeObserver { player.removeTimeObserver(timeObserver) }
+        timeObserver = nil
         player.pause()
         statusTask?.cancel()
         watchdogTask?.cancel()
@@ -192,7 +218,10 @@ struct NativePlayerView: View {
                 }
             }
         }
-        .onAppear { model.player.play() }
+        .onAppear {
+            model.enableHistory(for: channel)
+            model.player.play()
+        }
         .onDisappear { model.stop() }
         .task {
             guard channel.kind == .live, let id = channel.xtreamStreamID, let client = store.xtreamClient else { return }

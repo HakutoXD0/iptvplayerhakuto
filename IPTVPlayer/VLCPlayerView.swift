@@ -27,12 +27,19 @@ final class VLCPlayerModel: NSObject, ObservableObject, VLCMediaPlayerDelegate {
     @Published var currentAudio: Int32 = -1
     @Published var currentSubtitle: Int32 = -1
 
+    @Published var resumedAt: String?
+
+    private let channel: Channel
+    private var resumeMs: Double = 0
+    private var lastSavedMs: Double = 0
     private let prefAudio: PreferredLanguage
     private let prefSubtitle: PreferredLanguage
     private var didAutoSelect = false
     private var isSeeking = false
 
-    init(url: URL, prefAudio: PreferredLanguage, prefSubtitle: PreferredLanguage) {
+    init(url: URL, channel: Channel, prefAudio: PreferredLanguage, prefSubtitle: PreferredLanguage) {
+        self.channel = channel
+        if let start = WatchHistory.shared.resumePosition(for: channel) { resumeMs = start * 1000 }
         self.prefAudio = prefAudio
         self.prefSubtitle = prefSubtitle
         super.init()
@@ -68,6 +75,49 @@ final class VLCPlayerModel: NSObject, ObservableObject, VLCMediaPlayerDelegate {
     }
 
     func beginSeek() { isSeeking = true }
+
+    // MARK: Verlauf
+
+    private func currentMs() -> Double {
+        let t: VLCTime? = player.time
+        return Double(t?.intValue ?? 0)
+    }
+
+    private func lengthMs() -> Double {
+        let l: VLCTime? = player.media?.length
+        return Double(l?.intValue ?? 0)
+    }
+
+    /// Bei Filmen/Folgen: an der gemerkten Stelle starten, dann alle 5 s speichern
+    private func handleHistory() {
+        guard channel.kind != .live else { return }
+        let length = lengthMs()
+        guard length > 0 else { return }
+        if resumeMs > 0 {
+            player.position = .init(resumeMs / length)
+            let total = Int(resumeMs / 1000)
+            resumedAt = String(format: "%d:%02d:%02d", total / 3600, (total % 3600) / 60, total % 60)
+            resumeMs = 0
+            return
+        }
+        let now = currentMs()
+        if abs(now - lastSavedMs) >= 5000 {
+            lastSavedMs = now
+            WatchHistory.shared.update(channel: channel, position: now / 1000, duration: length / 1000)
+        }
+    }
+
+    func saveProgress() {
+        guard channel.kind != .live else { return }
+        let length = lengthMs(), now = currentMs()
+        guard length > 0, now > 0 else { return }
+        WatchHistory.shared.update(channel: channel, position: now / 1000, duration: length / 1000)
+    }
+
+    func restartFromBeginning() {
+        player.position = 0
+        resumedAt = nil
+    }
 
     func endSeek(at value: Float) {
         player.position = value
@@ -110,6 +160,7 @@ final class VLCPlayerModel: NSObject, ObservableObject, VLCMediaPlayerDelegate {
         timeText = player.time.stringValue ?? ""
         remainingText = player.remainingTime?.stringValue ?? ""
         if audioTracks.isEmpty && subtitleTracks.isEmpty { refreshTracks() }
+        handleHistory()
     }
 
     // MARK: Spuren
@@ -189,7 +240,7 @@ struct VLCPlayerScreen: View {
         let audio = PreferredLanguage(rawValue: defaults.string(forKey: SettingsKey.audioLanguage) ?? "") ?? .de
         let subs = PreferredLanguage(rawValue: defaults.string(forKey: SettingsKey.subtitleLanguage) ?? "") ?? .none
         let url = DownloadManager.shared.localFileURL(for: channel) ?? channel.streamURL
-        _model = StateObject(wrappedValue: VLCPlayerModel(url: url, prefAudio: audio, prefSubtitle: subs))
+        _model = StateObject(wrappedValue: VLCPlayerModel(url: url, channel: channel, prefAudio: audio, prefSubtitle: subs))
     }
 
     private var isLandscape: Bool { verticalSizeClass == .compact }
@@ -238,6 +289,7 @@ struct VLCPlayerScreen: View {
             scheduleHide()
         }
         .onDisappear {
+            model.saveProgress()
             model.stop()
             UIApplication.shared.isIdleTimerDisabled = false
             hideTask?.cancel()
@@ -402,6 +454,19 @@ struct VLCPlayerScreen: View {
                     if DownloadManager.shared.localFileURL(for: channel) != nil {
                         Label("Wird offline abgespielt", systemImage: "arrow.down.circle.fill")
                             .font(.footnote).foregroundStyle(.green)
+                    }
+                }
+            }
+
+            if let resumed = model.resumedAt {
+                Section {
+                    HStack {
+                        Label("Fortgesetzt bei \(resumed)", systemImage: "clock.arrow.circlepath")
+                            .font(.footnote)
+                        Spacer()
+                        Button("Von vorn") { model.restartFromBeginning() }
+                            .buttonStyle(.bordered)
+                            .font(.footnote)
                     }
                 }
             }
