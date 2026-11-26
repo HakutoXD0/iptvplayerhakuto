@@ -192,7 +192,19 @@ final class VLCPlayerModel: NSObject, ObservableObject, VLCMediaPlayerDelegate {
 
     // MARK: VLCMediaPlayerDelegate (VLCKit 4)
 
+    // VLC 4 ruft diese Methoden auf seinem eigenen Thread auf, während es den Player
+    // gesperrt hält. Jeder Zugriff auf den Player von dort (z. B. isPlaying) führt zum
+    // Absturz („vlc_player_Lock“). Deshalb erst auf den Haupt-Thread wechseln.
     func mediaPlayerStateChanged(_ newState: VLCMediaPlayerState) {
+        DispatchQueue.main.async { [weak self] in self?.handleState(newState) }
+    }
+
+    func mediaPlayerTimeChanged(_ aNotification: Notification) {
+        DispatchQueue.main.async { [weak self] in self?.handleTime() }
+    }
+
+    private func handleState(_ newState: VLCMediaPlayerState) {
+        guard player.delegate != nil else { return }
         switch newState {
         case .error:
             errorText = "Der Stream konnte nicht geöffnet werden. Prüfe deine Internetverbindung oder ob der Anbieter erreichbar ist."
@@ -210,7 +222,8 @@ final class VLCPlayerModel: NSObject, ObservableObject, VLCMediaPlayerDelegate {
         invalidatePiP()
     }
 
-    func mediaPlayerTimeChanged(_ aNotification: Notification) {
+    private func handleTime() {
+        guard player.delegate != nil else { return }
         isBuffering = false
         isPlaying = player.isPlaying
         if !isSeeking { position = Float(player.position) }
