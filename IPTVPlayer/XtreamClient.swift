@@ -73,10 +73,14 @@ nonisolated struct XtreamStream: Decodable, Sendable {
     let icon: String?
     let categoryID: String?
     let containerExtension: String?
+    let added: Date?
+    let year: Int?
+    let rating: Double?
 
     enum CodingKeys: String, CodingKey {
         case streamID = "stream_id", name, icon = "stream_icon",
-             categoryID = "category_id", containerExtension = "container_extension"
+             categoryID = "category_id", containerExtension = "container_extension",
+             added, year, rating, releaseDate = "releasedate"
     }
 
     init(from decoder: Decoder) throws {
@@ -86,6 +90,9 @@ nonisolated struct XtreamStream: Decodable, Sendable {
         icon = c.flexString(.icon)
         categoryID = c.flexString(.categoryID)
         containerExtension = c.flexString(.containerExtension)
+        added = c.flexString(.added).flatMap(Double.init).map(Date.init(timeIntervalSince1970:))
+        year = c.flexInt(.year) ?? YearParser.year(in: c.flexString(.releaseDate) ?? "") ?? YearParser.year(in: name)
+        rating = c.flexDouble(.rating)
     }
 }
 
@@ -95,10 +102,14 @@ nonisolated struct XtreamSeries: Decodable, Sendable, Identifiable, Hashable {
     let cover: String?
     let categoryID: String?
     let plot: String?
+    let lastModified: Date?
+    let year: Int?
+    let rating: Double?
     var group = ""
 
     enum CodingKeys: String, CodingKey {
-        case id = "series_id", name, cover, categoryID = "category_id", plot
+        case id = "series_id", name, cover, categoryID = "category_id", plot,
+             lastModified = "last_modified", year, releaseDate, rating
     }
 
     init(from decoder: Decoder) throws {
@@ -108,6 +119,9 @@ nonisolated struct XtreamSeries: Decodable, Sendable, Identifiable, Hashable {
         cover = c.flexString(.cover)
         categoryID = c.flexString(.categoryID)
         plot = c.flexString(.plot)
+        lastModified = c.flexString(.lastModified).flatMap(Double.init).map(Date.init(timeIntervalSince1970:))
+        year = c.flexInt(.year) ?? YearParser.year(in: c.flexString(.releaseDate) ?? "") ?? YearParser.year(in: name)
+        rating = c.flexDouble(.rating)
     }
 }
 
@@ -230,7 +244,10 @@ nonisolated struct XtreamClient: Sendable {
                 logoURL: s.icon.flatMap(URL.init(string:)),
                 streamURL: url,
                 kind: kind,
-                xtreamStreamID: s.streamID
+                xtreamStreamID: s.streamID,
+                addedAt: s.added,
+                year: s.year,
+                rating: s.rating
             )
         }
         return ChannelCollection(channels, groupOrder: categories.map(\.name))
@@ -281,6 +298,12 @@ nonisolated extension KeyedDecodingContainer {
         if let s = try? decodeIfPresent(String.self, forKey: key) { return s }
         if let i = try? decodeIfPresent(Int.self, forKey: key) { return String(i) }
         if let d = try? decodeIfPresent(Double.self, forKey: key) { return String(d) }
+        return nil
+    }
+
+    func flexDouble(_ key: Key) -> Double? {
+        if let d = try? decodeIfPresent(Double.self, forKey: key) { return d }
+        if let s = try? decodeIfPresent(String.self, forKey: key) { return Double(s.replacingOccurrences(of: ",", with: ".")) }
         return nil
     }
 

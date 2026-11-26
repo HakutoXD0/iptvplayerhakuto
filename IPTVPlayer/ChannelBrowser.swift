@@ -12,27 +12,40 @@ struct ChannelBrowser: View {
     @State private var selectedGroup: String?
     @State private var favoritesOnly = false
     @AppStorage private var useGrid: Bool
+    @AppStorage private var sortOrder: SortOrder
+    @State private var shuffleSeed = Int.random(in: 0...Int.max)
+    @State private var path = NavigationPath()
+    @State private var showRandom = false
 
     init(title: String, collection: ChannelCollection, showSettings: Binding<Bool>) {
         self.title = title
         self.collection = collection
         _showSettings = showSettings
-        // Jeder Tab merkt sich seine Ansicht; Filme starten mit großen Titelbildern
+        // Jeder Tab merkt sich seine Ansicht und Sortierung; Filme starten mit großen Titelbildern
         _useGrid = AppStorage(wrappedValue: title != "Live-TV", "gridLayout.\(title)")
+        _sortOrder = AppStorage(wrappedValue: .provider, "sortOrder.\(title)")
     }
 
     private var filtered: [Channel] {
-        collection.channels.filter { ch in
+        let items = collection.channels.filter { ch in
             (!favoritesOnly || store.isFavorite(ch))
             && (selectedGroup == nil || ch.group == selectedGroup)
             && (search.isEmpty || ch.name.localizedCaseInsensitiveContains(search))
+        }
+        return sortOrder.apply(items, seed: shuffleSeed, id: \.id, name: \.name, date: \.addedAt)
+    }
+
+    private var randomCandidates: [RandomCandidate] {
+        collection.channels.map {
+            RandomCandidate(id: $0.id, title: $0.name, group: $0.group, imageURL: $0.logoURL,
+                            year: $0.year, rating: $0.rating)
         }
     }
 
     private var isLiveTab: Bool { collection.channels.first?.kind == .live }
 
     var body: some View {
-        NavigationStack {
+        NavigationStack(path: $path) {
             let items = filtered
             Group {
                 if useGrid {
@@ -56,10 +69,27 @@ struct ChannelBrowser: View {
             .navigationBarTitleDisplayMode(.inline)
             .navigationDestination(for: Channel.self) { PlayerView(channel: $0) }
             .refreshable { await store.reload() }
+            .sheet(isPresented: $showRandom) {
+                RandomPickView(title: "Zufälliger Film", candidates: randomCandidates,
+                               groups: collection.groups) { id in
+                    if let ch = collection.channels.first(where: { $0.id == id }) { path.append(ch) }
+                }
+            }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
                     Menu {
                         Toggle("Nur Favoriten", isOn: $favoritesOnly)
+                        Picker(selection: $sortOrder) {
+                            ForEach(SortOrder.allCases) { Label($0.title, systemImage: $0.icon).tag($0) }
+                        } label: {
+                            Label("Sortierung: \(sortOrder.title)", systemImage: "arrow.up.arrow.down")
+                        }
+                        .pickerStyle(.menu)
+                        if sortOrder == .random {
+                            Button { shuffleSeed = Int.random(in: 0...Int.max) } label: {
+                                Label("Neu mischen", systemImage: "shuffle")
+                            }
+                        }
                         Picker("Kategorie", selection: $selectedGroup) {
                             Text("Alle Kategorien").tag(String?.none)
                             ForEach(collection.groups, id: \.self) { Text($0).tag(String?.some($0)) }
@@ -68,6 +98,11 @@ struct ChannelBrowser: View {
                         Image(systemName: selectedGroup == nil && !favoritesOnly
                               ? "line.3.horizontal.decrease.circle"
                               : "line.3.horizontal.decrease.circle.fill")
+                    }
+                }
+                if !isLiveTab {
+                    ToolbarItem(placement: .topBarTrailing) {
+                        RandomButton { showRandom = true }
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {

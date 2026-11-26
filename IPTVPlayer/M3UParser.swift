@@ -16,6 +16,10 @@ nonisolated struct Channel: Identifiable, Hashable, Sendable {
     var seriesCover: URL? = nil
     var season: Int? = nil
     var episode: Int? = nil
+    // Für Sortierung und Zufalls-Vorschlag
+    var addedAt: Date? = nil
+    var year: Int? = nil
+    var rating: Double? = nil
 
     /// Xtream: stabile ID, M3U: Stream-URL – bleibt beim Neuladen gleich
     var favoriteKey: String { xtreamStreamID != nil ? id : streamURL.absoluteString }
